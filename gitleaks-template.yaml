@@ -1,0 +1,111 @@
+parameters:
+  - name: 'srcDir'
+    type: string
+    default: '.'
+  - name: 'exclusions'
+    type: string
+    default: ''
+  - name: gitleaksConfig
+    type: string
+    default: $(Build.SourcesDirectory)/gitleaks-hunt/config/config.toml
+
+steps:
+- script: |
+    echo Installing Gitleaks...
+    wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
+    tar -xf gitleaks_8.18.2_linux_x64.tar.gz
+    sudo mv gitleaks /usr/local/bin/
+  displayName: 'Install Gitleaks'
+
+- script: |
+    CONFIG_PATH="$(Build.SourcesDirectory)/gitleaks-hunt/config/config.toml"
+    if [ -n "${{ parameters.exclusions }}" ]; then
+      echo "" >> $CONFIG_PATH
+      echo "" >> $CONFIG_PATH
+      echo "[allowlist]" >> $CONFIG_PATH
+      echo "description = 'global allow list'" >> $CONFIG_PATH
+      echo "commits = [ \"commit-A\", \"commit-B\", \"commit-C\"]" >> $CONFIG_PATH
+      
+      echo "paths = [" >> $CONFIG_PATH
+      echo "  '''config\\.toml'''," >> $CONFIG_PATH
+      echo "  '''(.*?)(jpg|gif|doc)'''," >> $CONFIG_PATH
+
+      # Read the exclusions line by line
+      while IFS= read -r line; do
+        # Skip empty lines
+        [ -z "$line" ] && continue
+        # Remove the leading '-' character
+        line=$(echo $line | sed 's/^- //')
+        # Transform path to regex pattern for Gitleaks config
+        regex_path=$(echo $line | sed 's/\./\\./g' | sed 's/\*/.*/g')
+        echo "  '''$regex_path'''," >> $CONFIG_PATH
+      done <<< "${{ parameters.exclusions }}"
+
+      # Remove the last comma
+      sed -i '$ s/,$//' $CONFIG_PATH
+      echo "]" >> $CONFIG_PATH
+    fi
+
+    # Add regex patterns and stopwords
+    echo "" >> $CONFIG_PATH
+    echo "regexTarget = \"match\"" >> $CONFIG_PATH
+    echo "" >> $CONFIG_PATH
+    echo "regexes = [" >> $CONFIG_PATH
+    echo "  '''219-09-9999'''," >> $CONFIG_PATH
+    echo "  '''078-05-1120'''," >> $CONFIG_PATH
+    echo "  '''(9[0-9]{2}|666)-\\d{2}-\\d{4}'''," >> $CONFIG_PATH
+    echo "]" >> $CONFIG_PATH
+    echo "" >> $CONFIG_PATH
+    echo "stopwords = [" >> $CONFIG_PATH
+    echo "  '''client'''," >> $CONFIG_PATH
+    echo "  '''endpoint'''," >> $CONFIG_PATH
+    echo "]" >> $CONFIG_PATH
+
+- script: |
+    cp gitleaks-hunt/config/config.toml $(Build.SourcesDirectory)/
+    #echo ""
+    echo ""
+    echo "##################################"
+    echo "### > SECRET DETECTION RULES < ###"
+    echo "##################################"
+    echo ""
+    cat $(Build.SourcesDirectory)/config.toml
+    echo "#################################################"
+    echo "#################################################"
+    #echo ""
+    echo ""
+    echo Running Gitleaks...
+    gitleaks detect --source=${{ parameters.srcDir }} \
+                    --verbose \
+                    --config=$(Build.SourcesDirectory)/config.toml \
+                    --report-format=json \
+                    --report-path=$(Build.ArtifactStagingDirectory)/gitleaks-report.json
+  displayName: 'Scan for Secrets with Gitleaks'
+
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
+    addToPath: true
+  displayName: 'Install Python'
+  condition: succeededOrFailed()
+
+- script: |
+    cp gitleaks-hunt/report/json_to_html.py $(Build.SourcesDirectory)/
+    python3 $(Build.SourcesDirectory)/json_to_html.py $(Build.ArtifactStagingDirectory)/gitleaks-report.json $(Build.ArtifactStagingDirectory)/gitleaks-report.html
+  displayName: 'Convert JSON Report to HTML'
+  condition: succeededOrFailed()
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/gitleaks-report.html'
+    ArtifactName: 'Gitleaks HTML Report'
+    publishLocation: 'Container'
+  displayName: 'Publish HTML Report as Build Artifact'
+  condition: succeededOrFailed()
+
+- task: JakubRumpca.azure-pipelines-html-report.PublishHtmlReport.PublishHtmlReport@1
+  inputs:
+    tabName: 'Gitleaks Report'
+    reportDir: $(Build.ArtifactStagingDirectory)/gitleaks-report.html
+  displayName: 'Publish HTML Report'
+  condition: succeededOrFailed()
