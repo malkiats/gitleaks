@@ -1,0 +1,23 @@
+### Escape special regex characters like the dot (.) with a double backslash (\\). ###
+### In regular expressions, a dot matches any character, but here you want it to represent an actual dot. ###
+
+
+[[rules]]
+id = "generic-api-key"
+description = "Detected a Generic API Key, token, secrets etc."
+regex = '''(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)|(?:api-key|api_key|password|token)\s*=\s*"[0-9a-zA-Z]+"'''
+entropy = 3.5
+keywords = [
+    "key","api","token","secret","client","passwd","password","auth","access",
+]
+
+[[rules]]
+id = "simulated-api-key"
+description = "Detect simulated API key assignment."
+regex = '''api[-_]key\s*=\s*"AK[0-9A-Z]{16}"'''
+tags = ["API Key"]
+
+[[rules]]
+description = "Generic Password in Code"
+regex = '''password\s*=\s*"[^"]+"'''
+tags = ["password", "generic"]
